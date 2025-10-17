@@ -1,0 +1,7 @@
+öğrenci no 250541614
+aycha alebrahım
+Online alışveriş sepeti sistemi, kullanıcının ürünleri seçip geçici olarak sepetinde saklamasını ve satın alma işlemini tamamlamasını sağlar.
+Kullanıcı siteye giriş yaptıktan sonra ürünleri görüntüler, detay sayfasından dilediği ürünü sepete ekleyebilir veya çıkarabilir.
+Sepet üzerinden ürün adetlerini değiştirebilir ve “Satın Al” seçeneğiyle ödeme sürecine geçebilir.
+Ödeme aşamasında kullanıcı adres ve kart bilgilerini girer, banka onayı sonrası sipariş oluşturulup kargoya verilir.
+Son olarak sipariş teslim edilince sistem “Teşekkür ederiz, alışverişiniz tamamlandı.” mesajını gösterir
