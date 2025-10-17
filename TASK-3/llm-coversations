@@ -1,0 +1,8 @@
+hastaneden nasıl randevu alınır sistem nasıldır
+Hastaneden randevu alma sistemi, hastaların doktorlardan uygun zamanda randevu alabilmesini sağlayan bir süreçtir. Kısaca şöyle işler
+Giriş veya kayıt: Hasta sisteme (örneğin MHRS ya da hastanenin kendi sitesi) giriş yapar veya yeni hesap oluşturur.
+Bölüm ve doktor seçimi: Hasta, gitmek istediği polikliniği ve doktoru seçer
+Tarih ve saat seçimi: Seçilen doktorun uygun randevu saatleri listelenir, hasta kendine uygun olanı seçer.
+Randevu onayı: Sistem, seçilen zaman dilimini rezerve eder ve hastaya randevu bilgilerini gösterir
+Randevu günü: Hasta belirlenen saatte hastaneye giderek muayenesini olur.
+Bu sistemin temel amacı, hastane yoğunluğunu azaltmak, hastalara planlı hizmet sunmsk ve işlemleri kolaylaştırmak
