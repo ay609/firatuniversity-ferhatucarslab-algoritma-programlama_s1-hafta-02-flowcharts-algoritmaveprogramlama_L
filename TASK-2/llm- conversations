@@ -1,0 +1,239 @@
+online alOnline alışveriş sepeti (shopping cart) — detaylı açıklama
+
+Harika — bir e-ticaret sepet şeması (ER diyagram + tablolama + davranış) tasarlarken dikkat etmen gereken hem veri modelleme hem de iş akışı / tutarlılık konuları olur. Aşağıda hem kavramsal hem de uygulamaya dönük teknik ayrıntıları, örnek SQL DDL’leri, ilişkiler, indeks/constraint önerileri ve yaygın tasarım kararlarını bulacaksın.
+
+1) Temel kavramlar ve varlıklar (entities)
+
+User (Kullanıcı): kayıtlı kullanıcı bilgileri (id, email, vb).
+
+Guest/Session: kayıtlı olmayan kullanıcı için oturum veya geçici kimlik.
+
+Product (Ürün): ürün ana verisi (ad, açıklama, fiyat, sürekli özellikler).
+
+ProductVariant: beden/renk gibi varyantlar — stok gibi varyant düzeyinde tutulur.
+
+Inventory (Stok): her varyant için stok adedi, rezervasyon bilgisi.
+
+Cart (Sepet): bir kullanıcıya/oturuma ait sepete ait meta (oluşturulma zamanı, durum).
+
+CartItem (SepetKalemi): sepetteki her bir ürün satırı (ürün_id, variant_id, qty, fiyat).
+
+Coupon/Promotion (Kupon/Kampanya): indirim kuralları.
+
+Order (Sipariş) ve OrderItem: checkout sonrası kalıcı kayıt.
+
+Payment, Shipment, Address: ödeme, gönderim bilgileri.
+
+Audit / EventLog: sepet değişiklikleri için izleme.
+
+2) İlişkiler (ER mantığı)
+
+User 1 — * Cart
+
+Cart 1 — * CartItem
+
+Product 1 — * ProductVariant
+
+ProductVariant 1 — 1 Inventory (veya Inventory per warehouse)
+
+CartItem — refers to -> ProductVariant (veya Product)
+
+Cart -> Coupon (0..1)
+
+Cart -> Order (1..1) (checkout sonrası)
+
+ER diyagramında kutular: User, Cart, CartItem, Product, ProductVariant, Inventory, Coupon, Order. Oklarla foreign key’leri göster.
+
+3) Tasarım kararları / seçenekler (konseptler)
+
+a) Sepet mi yoksa sipariş?
+
+Sepet geçici bir yapıdır; sipariş ise kalıcı ve muhasebe/lojistik süreçlerinin başlangıcıdır. Checkout sırasında sepet -> sipariş dönüşümü yapılır.
+
+b) Variant kullanımı:
+
+Tek ürün-tablosu mu yoksa variant tablosu mu? Renk/beden/ölçü gibi durumlarda product_variants tavsiye edilir.
+
+c) Fiyat saklama:
+
+Sepet kaleminde unit_price ve total_price sakla. Çünkü ürün fiyatı daha sonra değişebilir; geçmişe dönük doğruluk için faturaya/sepete fiyatı kaydetmeliyiz.
+
+d) Stok rezervasyonu:
+
+Checkout sırasında gerçek rezervasyon yapılabilir (veya ödeme onayı gelince). Abandoned cart’ların stok rezervasyonu yapıyorsan TTL (ör. 30 dakika) gerekir.
+
+e) Guest (misafir) sepetleri:
+
+Guest için session_id veya temp token kullan. Kayıtlı kullanıcı giriş yaparsa guest sepetini kullanıcı hesabına merge et.
+
+f) Tutarlılık / concurrency:
+
+Aynı anda stok tüketimi veya aynı sepet üzerinde birden fazla işlem için transaction, optimistic locking (version) veya pessimistic locking (az tercih) kullan.
+
+g) Performans / indexing:
+
+Sık sorgulanan alanlara (user_id, session_id, created_at, status) indeks ekle.
+
+4) Örnek tablo şeması (çekirdek tablolar) — SQL DDL örneği (Postgres’e uygun)
+-- Kullanıcı
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  name TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Ürün ve varyant
+CREATE TABLE products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  sku TEXT UNIQUE,
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+CREATE TABLE product_variants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id UUID NOT NULL REFERENCES products(id),
+  sku TEXT UNIQUE,
+  attributes JSONB, -- e.g. {"color":"red","size":"M"}
+  base_price NUMERIC(12,2) NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Stok (basit)
+CREATE TABLE inventory (
+  variant_id UUID PRIMARY KEY REFERENCES product_variants(id),
+  available INT NOT NULL DEFAULT 0,
+  reserved INT NOT NULL DEFAULT 0, -- anlık rezervasyon sayısı
+  last_updated TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+-- Sepet
+CREATE TYPE cart_status AS ENUM ('active','checked_out','abandoned');
+
+CREATE TABLE carts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  session_id TEXT, -- guest için
+  status cart_status DEFAULT 'active',
+  currency CHAR(3) DEFAULT 'EUR',
+  coupon_code TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+CREATE INDEX idx_carts_user ON carts(user_id);
+
+-- Sepet Kalemleri
+CREATE TABLE cart_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cart_id UUID NOT NULL REFERENCES carts(id) ON DELETE CASCADE,
+  variant_id UUID REFERENCES product_variants(id),
+  product_id UUID REFERENCES products(id),
+  quantity INT NOT NULL CHECK (quantity > 0),
+  unit_price NUMERIC(12,2) NOT NULL, -- fiyat sepete eklenirken alınır
+  line_total NUMERIC(12,2) NOT NULL, -- unit_price * quantity +/- line discounts
+  added_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+CREATE INDEX idx_cartitems_cart ON cart_items(cart_id);
+
+-- Sipariş (örnek minimal)
+CREATE TABLE orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id),
+  cart_id UUID REFERENCES carts(id),
+  total_amount NUMERIC(12,2) NOT NULL,
+  currency CHAR(3) NOT NULL,
+  status TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
+5) Örnek kullanım akışları (use-cases / sequence)
+
+A) Ürün sepete ekleme
+
+Kullanıcı (veya session) için carts tablosundan aktif sepet çekilir (yoksa oluştur).
+
+product_variant için stok kontrolü yapılır (inventory.available - inventory.reserved >= qty).
+
+Eğer stoğa izin verilecekse: cart_items eklenir ya da mevcut satır güncellenir.
+
+cart_items.unit_price = o anki fiyat (kampanyalar uygulanmış hali) kaydedilir.
+
+carts.updated_at güncellenir.
+
+(Opsiyonel) Stoğu rezerve et: inventory.reserved += qty (TTL ile temizlenir).
+B) Sepeti birleştirme (guest -> kayıtlı)
+Kullanıcı kayıt olup giriş yapınca guest cart ile user cart merge edilir: aynı varyant varsa qty toplanır (limit/availability kontrolü). Eski guest cart status='abandoned' ya da silinir.
+C) Checkout
+Transaction başlat.
+Ödeme ve stok rezervasyonu kesinleştirilir (inventory.available -= qty; inventory.reserved -= qty).
+Sipariş yaratılır (orders + order_items kopyalanır).
+Sepet status='checked_out'.
+Transaction commit.
+6) Tutarlılık ve concurrency stratejileri
+Atomic checkout: sipariş oluşturma ve stok azaltmayı tek transaction içinde yap.
+Optimistic locking: inventory tablosuna version (integer) ekleyip UPDATE ... WHERE version = x; rowcount kontrolü.
+Pessimistic locking: kritik stok decrement işlemlerinde SELECT ... FOR UPDATE.
+Idempotency: ödeme gateway callback’lerinde duplicate create’i önlemek için idempotency key kullan.
+7) Performans / ölçekleme önerileri
+
+Sık okunan favori sorgulara (aktif sepet by user) uygun indeksi ekle.
+
+Büyük trafikse: cache (Redis) üzerinde transient sepet bilgisi tut, periyodik olarak kalıcı veritabanına yaz. Ancak cache/veritabanı tutarlılığına dikkat et.
+
+Abandoned cart'ları temizleyen periyodik job (cron) kullan; TTL 24 saat ya da işletme politikasına göre.
+
+8) Güvenlik, gizlilik & doğrulama
+
+Kullanıcı verileri için GDPR uyumluluğu: eğer kullanıcı silinirse ilişkili guest/cart verilerini de temizleme politikası.
+
+Ödeme verilerini (kart numarası vb.) saklama: PCI-DSS uyumlu üçüncü taraf sağlayıcı kullan.
+API tarafında: rate-limit, auth (JWT veya session), input validation.
+Denetim: cart_events tablosu ile ekleme/çıkarma/sürüm değişikliği logla.
+9) Ek özellikler / iyileştirmeler
+Kampanya motoru: sepet toplam bazlı, ürün bazlı indirimler, BOGOF, kupon expiration check.
+Fiyat geçmişi: ürün fiyatı değiştiğinde geçmiş sepetlerdeki fiyatın saklanması.
+Çoklu depo / warehouse: stok lokasyonları varsa inventory`de warehouse_id tut.
+Multi-currency: sepette currency sakla, ödeme sırasında döviz kuru uygulama stratejisi belirle.
+Abandoned cart email tetiklemeleri.
+Cart suggestions / upsell: sepetteki ürünlere göre öneri.
+10) Örnek sorgular (pratik)
+Kullanıcının aktif sepetini getir:
+SELECT c.*, ci.*
+FROM carts c
+LEFT JOIN cart_items ci ON ci.cart_id = c.id
+WHERE c.user_id = :user_id AND c.status = 'active';
+Sepete ürün eklerken (pseudocode):
+BEGIN;
+-- 1) create or fetch cart
+-- 2) check inventory:
+SELECT available, reserved FROM inventory WHERE variant_id = :vid FOR UPDATE;
+-- 3) if available - reserved >= qty then insert/update cart_items
+-- 4) optionally update inventory.reserved += qty
+COMMIT;
+11) ER diyagramı nasıl çizersin — öğeler
+ER diyagramında göstermeni önerdiğim kutular:
+Users (id)
+Carts (id, user_id, session_id, status)
+CartItems (id, cart_id, product_id, variant_id, qty, unit_price)
+Products (id)
+ProductVariants (id, product_id)
+Inventory (variant_id, available, reserved)
+Orders / OrderItems
+Coupons
+Bağlantılar: Users -> Carts (1..*), Carts -> CartItems (1..*), CartItems -> ProductVariants (0..1), ProductVariants -> Inventory (1..1), Carts -> Orders (1..1, at checkout).
+12) Kısa kontrol listesi (Checklist)
+ Sepet tablosunda user_id ve session_id için index var mı?
+ CartItem’da fiyat ve toplam var mı? (unit_price, line_total)
+ Stok rezervasyon politikası tanımlı mı? (when reserved, TTL)
+ Guest -> user merge senaryosu test edildi mi?
+ Checkout atomic mi? (transaction)
+ Concurrency için optimistic/pessimistic lock planı var mı?
+ Abandoned cart temizleme job’ı var mı?
+ Güvenlik/PCI/GDPR kontrolleri yapıldı mı?
+Eğer istersen:
+Bu şemaya göre tam bir ER diyagramı (mermaid veya görüntü) hazırlayabilirim,
+Veya yukarıdaki SQL DDL’leri genişleterek order_items, payments, addresses, promotions tablolarını da ekleyip tam bir migration dosyası oluşturabilirim.
+
+Hangi formatta ister misin? (ER diyagramı görüntüsü, mermaid, veya genişletilmiş SQL DDL — hangisini doğrudanış veriş sepetinin şemasını çizeceğim bana konuyu detaylı anlt 
