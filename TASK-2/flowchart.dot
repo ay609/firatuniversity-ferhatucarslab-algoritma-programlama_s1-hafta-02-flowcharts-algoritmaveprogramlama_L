@@ -1,0 +1,117 @@
+digraph ShoppingFlow {
+  rankdir=LR;
+  fontsize=12;
+  labelloc="t";
+  label="Online Alışveriş Sepeti - Akış Diyagramı";
+
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica"];
+
+  /* Genel düğüm stilleri */
+  node_start [label="Başla", shape=oval, style=filled, fillcolor="#dff0d8"];
+  node_end   [label="Teşekkürler — Alışveriş tamamlandı.", shape=oval, style=filled, fillcolor="#dff0d8"];
+
+  /* Browsing cluster */
+  subgraph cluster_browsing {
+    label="Gezinti";
+    style=rounded;
+    product_list [label="Ürün listesi gösterilir", shape=box];
+    select_product [label="Kullanıcı bir ürün seçer", shape=box];
+    product_details [label="Ürün detayları görüntülenir", shape=box];
+    decide_add [label="Sepete eklemek ister mi?", shape=diamond];
+    add_ok [label="Ürün sepete eklendi.\n(ve unit_price kaydedildi)", shape=note];
+    add_no [label="Ürün eklenmedi.", shape=note];
+    continue_shopping [label="Alışverişe devam et", shape=box];
+    view_cart [label="Sepeti görüntüle", shape=box];
+  }
+
+  /* Cart cluster */
+  subgraph cluster_cart {
+    label="Sepet";
+    style=rounded;
+    cart_view [label="Sepet görüntülendi", shape=box];
+    update_qty [label="Adet güncelle\nveya ürün sil", shape=box];
+    checkout [label="Satın Al (Checkout) seçildi?", shape=diamond];
+  }
+
+  /* Checkout cluster */
+  subgraph cluster_checkout {
+    label="Ödeme / Checkout";
+    style=rounded;
+    need_login [label="Giriş yapıldı mı?", shape=diamond];
+    prompt_login [label="Giriş yap / Üye ol", shape=box];
+    enter_address [label="Teslimat adresi girilir", shape=box];
+    enter_payment [label="Ödeme bilgileri girilir", shape=box];
+    confirm_order [label="Sipariş onaylanır", shape=box];
+    bank_check [label="Banka onayı beklenir", shape=diamond];
+    pay_ok [label="Ödeme onaylandı.", shape=note];
+    pay_fail [label="Ödeme reddedildi.", shape=note];
+    retry_payment [label="Kullanıcı yeniden denemek ister mi?", shape=diamond];
+  }
+
+  /* Fulfillment cluster */
+  subgraph cluster_fulfill {
+    label="Hazırlık ve Teslimat";
+    style=rounded;
+    prepare [label="Sipariş hazırlanır", shape=box];
+    ship [label="Kargoya verilir", shape=box];
+    deliver [label="Teslim edilir", shape=box];
+  }
+
+  /* Başlangıç akışı */
+  node_start -> product_list;
+  product_list -> select_product;
+  select_product -> product_details;
+  product_details -> decide_add;
+
+  /* Sepete ekleme kararı */
+  decide_add -> add_ok [label="Evet"];
+  decide_add -> add_no [label="Hayır"];
+
+  /* Eklendikten sonra seçenekler */
+  add_ok -> continue_shopping;
+  add_no -> continue_shopping;
+  continue_shopping -> product_list [label="Devam"];
+  continue_shopping -> view_cart [label="Sepeti Görüntüle"];
+
+  /* View cart akışı */
+  view_cart -> cart_view;
+  cart_view -> update_qty [label="Adet güncelle / Sil"];
+  cart_view -> checkout [label="Satın Al"];
+
+  /* Checkout akışı */
+  checkout -> need_login;
+  need_login -> prompt_login [label="Hayır"];
+  need_login -> enter_address [label="Evet"];
+
+  prompt_login -> enter_address;
+
+  enter_address -> enter_payment;
+  enter_payment -> confirm_order;
+  confirm_order -> bank_check;
+  bank_check -> pay_ok [label="Onaylandı"];
+  bank_check -> pay_fail [label="Reddedildi"];
+
+  /* Ödeme onaylandıysa fulfillment */
+  pay_ok -> prepare;
+  prepare -> ship;
+  ship -> deliver;
+  deliver -> node_end;
+  pay_ok -> node_end [style=dashed, label="(alternatif kısa mesaj)"];
+
+  /* Ödeme reddedildi ise */
+  pay_fail -> retry_payment;
+  retry_payment -> enter_payment [label="Evet"];
+  retry_payment -> node_end [label="Hayır, çıkış"];
+
+  /* Kullanıcı sepete eklenince bilgilendirme düğümleri */
+  add_ok -> product_details [style=dotted, label="Geri dön"];
+  add_no -> product_details [style=dotted, label="Geri dön"];
+
+  /* Güvenlik: çakışmayı önlemek için checkout sırasında transaction uyarısı (not node) */
+  tx_note [label="(Checkout: atomic transaction, stok kontrolü, rezervasyon)", shape=note];
+  confirm_order -> tx_note [style=dotted];
+
+  /* Görsellik ayarları */
+  { rank = same; product_list; cart_view; }
+}
