@@ -1,0 +1,69 @@
+digraph HospitalAppointmentER {
+  graph [rankdir=LR, fontsize=12, splines=true];
+  node [shape=record, fontname="Helvetica", fontsize=11];
+
+  /* Entities (record format: <PK> name | attributes ) */
+  Patient [label="{Patient|<pk>patient_id : UUID (PK)\lname : TEXT\ldob : DATE\lgender : TEXT\lphone : TEXT\lemail : TEXT\laddress : TEXT\l}"];
+  Doctor  [label="{Doctor|<pk>doctor_id : UUID (PK)\lname : TEXT\lspecialty : TEXT\llicense_no : TEXT\lphone : TEXT\lemail : TEXT\l}"];
+  Department [label="{Department|<pk>dept_id : UUID (PK)\lname : TEXT\llocation : TEXT\l}"];
+  Clinic  [label="{Clinic|<pk>clinic_id : UUID (PK)\ldept_id : UUID (FK)\lname : TEXT\lroom : TEXT\l}"];
+  Schedule [label="{Schedule|<pk>schedule_id : UUID (PK)\ldoctor_id : UUID (FK)\lstart_date : DATE\lend_date : DATE\lworking_hours : TEXT\l}"];
+  TimeSlot [label="{TimeSlot|<pk>slot_id : UUID (PK)\lschedule_id : UUID (FK)\lstart_time : TIMESTAMP\lend_time : TIMESTAMP\lstatus : ENUM(pending,booked,blocked)\l}"];
+  Appointment [label="{Appointment|<pk>appt_id : UUID (PK)\lpatient_id : UUID (FK)\ldoctor_id : UUID (FK)\lslot_id : UUID (FK)\lclinic_id : UUID (FK)\lstatus : ENUM(requested,confirmed,cancelled,completed)\lcreated_at : TIMESTAMP\lupdated_at : TIMESTAMP\lreason : TEXT\l}"];
+  MedicalRecord [label="{MedicalRecord|<pk>mr_id : UUID (PK)\lpatient_id : UUID (FK)\ldoctor_id : UUID (FK)\lvisit_date : DATE\ldiagnosis : TEXT\ltreatment : TEXT\lnotes : TEXT\l}"];
+  Prescription [label="{Prescription|<pk>rx_id : UUID (PK)\lmr_id : UUID (FK)\ldate : DATE\ldetails : TEXT\l}"];
+  Billing [label="{Billing|<pk>bill_id : UUID (PK)\lappt_id : UUID (FK)\lamount : NUMERIC\lcurrency : CHAR(3)\lstatus : ENUM(pending,paid,refunded)\lcreated_at : TIMESTAMP\l}"];
+  Payment [label="{Payment|<pk>pay_id : UUID (PK)\lbill_id : UUID (FK)\lmethod : TEXT\lamount : NUMERIC\lstatus : ENUM(success,failed,pending)\ltransaction_ref : TEXT\l}"];
+  Staff [label="{Staff|<pk>staff_id : UUID (PK)\lname : TEXT\lrole : TEXT\lemail : TEXT\lphone : TEXT\l}"];
+  Room [label="{Room|<pk>room_id : UUID (PK)\lclinic_id : UUID (FK)\r_number : TEXT\lcapacity : INT\l}"];
+
+  /* Relationship edges (FK) */
+  Department -> Clinic  [label="1..* (dept_id)", taillabel="dept_id FK", arrowhead=none];
+  Clinic -> Room        [label="1..*", taillabel="clinic_id FK", arrowhead=none];
+  Doctor -> Schedule    [label="1..*", taillabel="doctor_id FK", arrowhead=none];
+  Schedule -> TimeSlot  [label="1..*", taillabel="schedule_id FK", arrowhead=none];
+  TimeSlot -> Appointment [label="0..1 (slot_id)", taillabel="slot_id FK", arrowhead=none];
+  Patient -> Appointment [label="1..*", taillabel="patient_id FK", arrowhead=none];
+  Doctor -> Appointment [label="1..*", taillabel="doctor_id FK", arrowhead=none];
+  Clinic -> Appointment [label="1..*", taillabel="clinic_id FK", arrowhead=none];
+  Appointment -> Billing [label="0..1", taillabel="appt_id FK", arrowhead=none];
+  Billing -> Payment    [label="0..*", taillabel="bill_id FK", arrowhead=none];
+  Patient -> MedicalRecord [label="1..*", taillabel="patient_id FK", arrowhead=none];
+  MedicalRecord -> Prescription [label="0..*", taillabel="mr_id FK", arrowhead=none];
+  Doctor -> MedicalRecord [label="0..*", taillabel="doctor_id FK", arrowhead=none];
+
+  /* Optional/administrative relations */
+  Staff -> Clinic [label="*..*", style=dashed, arrowhead=none];
+  Staff -> Room   [label="*..*", style=dashed, arrowhead=none];
+
+  /* Visual grouping (clusters) to make diagram daha okunaklı */
+  subgraph cluster_people {
+    label="Kişiler";
+    style=rounded;
+    Patient; Doctor; Staff;
+  }
+  subgraph cluster_org {
+    label="Birimler";
+    style=rounded;
+    Department; Clinic; Room;
+  }
+  subgraph cluster_scheduling {
+    label="Çizelgeleme & Randevu";
+    style=rounded;
+    Schedule; TimeSlot; Appointment;
+  }
+  subgraph cluster_care {
+    label="Tedavi & Fatura";
+    style=rounded;
+    MedicalRecord; Prescription; Billing; Payment;
+  }
+
+  /* Layout hints */
+  { rank = same; Department; Clinic; Room; }
+  { rank = same; Patient; Doctor; Staff; }
+  { rank = same; Schedule; TimeSlot; Appointment; }
+
+  /* Small notes for implementasyon */
+  note1 [shape=note, label="Tavsiyeler:\n- TimeSlot rezervasyonunda atomic transaction kullan.\n- İptal/kayıt log'u için audit tablosu ekleyin.\n- Hasta gizliliği (Kişisel Sağlık Verisi) için erişim kontrolleri uygula.", fontsize=10];
+  note1 -> Appointment [style=dotted];
+}
